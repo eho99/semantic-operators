@@ -1,6 +1,11 @@
+wheel
 numpy
 pandas
 litellm
 openai
 faiss-cpu==1.8.0.post1
 lotus-ai
+num2words
+scipy
+scikit-learn
+tiktoken
