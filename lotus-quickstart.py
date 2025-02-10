@@ -30,10 +30,28 @@ skills_data = {"Skill": ["Math", "Computer Science"]}
 courses_df = pd.DataFrame(courses_data)
 skills_df = pd.DataFrame(skills_data)
 
+df_a = courses_df.rename(columns={"Course Name": "value_a"})
+df_b = skills_df.rename(columns={"Skill": "value_b"})
+
+print(df_a, df_b)
+
+# Default prompt template if none provided
+prompt_template = "Are {value_a} and {value_b} semantically related?"
+
+# Perform semantic join using Lotus
+res = df_a.sem_join(
+    df_b,
+    prompt_template,
+    # threshold=0.5  # Configurable threshold for match confidence
+)
+
+
+
 # lotus sem join 
-print("performing join now")
-res = courses_df.sem_join(skills_df, "Taking {Course Name} will help me learn {Skill}")
+# print("performing join now")
+# res = courses_df.sem_join(skills_df, "Taking {Course Name} will help me learn {Skill}")
 print(res)
+print(type(res))
 
 # Print total LM usage
 lm.print_total_usage()
