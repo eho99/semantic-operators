@@ -9,3 +9,4 @@ num2words
 scipy
 scikit-learn
 tiktoken
+redis

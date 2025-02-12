@@ -1,5 +1,6 @@
 from src.utils import normalize_text
 import pandas as pd
+import json
 
 class DataLoader:
     def __init__(self, sample_filename: str, truth_filename: str, labels_filename: str):

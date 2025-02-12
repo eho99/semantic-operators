@@ -1,11 +1,25 @@
 import numpy as np
 from typing import Tuple
+import litellm
 from litellm import embedding
+from litellm.caching.caching import Cache
 from src.config import AZURE_API_KEY, AZURE_API_BASE, EMBEDDING_DEPLOYMENT, AZURE_API_VERSION 
 
 class Embedder:
-    def __init__(self, client=None, model_name: str = EMBEDDING_DEPLOYMENT):
-        self.client = client
+    def __init__(self, client=None, model_name: str = EMBEDDING_DEPLOYMENT, use_cache=True):
+        if use_cache:
+            litellm.cache = Cache(type="disk")
+
+        if client is None:
+            # Initialize default configuration for Azure
+            self.client = {
+                'model': model_name,
+                'api_key': AZURE_API_KEY,
+                'api_base': AZURE_API_BASE,
+                'api_version': AZURE_API_VERSION
+            }
+        else:
+            self.client = client
         self.model_name = model_name
         self._embedding_cost = 0.0
         self._total_tokens = 0
@@ -32,25 +46,22 @@ class Embedder:
         Retrieves the embedding for a given text using the Azure model.
         Tracks token usage and cost per call.
         """
-        if self.client:
-            # Implement the client-based call if needed.
-            pass
-        else:
-            response = embedding(
-                model=self.model_name, 
-                input=[text], 
-                api_key=AZURE_API_KEY, 
-                api_base=AZURE_API_BASE, 
-                api_version=AZURE_API_VERSION
-            )
-            
-            # Track tokens and cost based on the response metadata.
-            token_count = response.usage.total_tokens
-            self._total_tokens += token_count
-            # Adjust the rate to match your Azure pricing.
-            embedding_cost = 0.00002 * (token_count / 1000) # $0.00002 per 1000 tokens
-            self._embedding_cost += embedding_cost
-            embedded_text = response.data[0]['embedding']
+        response = embedding(
+            model=self.client['model'],
+            input=[text],
+            api_key=self.client['api_key'],
+            api_base=self.client['api_base'],
+            api_version=self.client['api_version'],
+            caching=True,
+        )
+        
+        # Track tokens and cost based on the response metadata.
+        token_count = response.usage.total_tokens
+        self._total_tokens += token_count
+        # Adjust the rate to match your Azure pricing.
+        embedding_cost = 0.00002 * (token_count / 1000) # $0.00002 per 1000 tokens
+        self._embedding_cost += embedding_cost
+        embedded_text = response.data[0]['embedding']
 
         return embedded_text, embedding_cost
 
