@@ -76,6 +76,7 @@ class SemanticJoin:
         for i, (desc, best_idx, similarity) in enumerate(zip(descriptions, best_matches, best_similarities)):
             join_results.append((desc, labels[best_idx], float(similarity)))
         
+        print(join_results)
         return join_results, desc_cost + label_cost
 
     def perform_llm_join(self, data_a: pd.DataFrame, data_b: pd.DataFrame, col_a: str, col_b: str, prompt_template: Optional[str] = None) -> Tuple[List[Tuple[str, str, float]], float]:
@@ -203,9 +204,14 @@ class SemanticJoin:
             else:
                 raise ValueError(f"Unknown join method: {join_method}")
             
+            print(results)
             metrics['execution_time'] = time.time() - start_time
             metrics['total_pairs'] = len(results)
-            metrics['matched_pairs'] = len([(a, b) for a, b in results if (a, b) in truth])  # Count matching pairs with truth
+            # Handle different result formats for embedding vs LLM joins
+            if join_method == 'embedding':
+                metrics['matched_pairs'] = len([(a, b) for a, b, score in results if (a, b) in truth])
+            else:  # llm join
+                metrics['matched_pairs'] = len([(a, b) for a, b in results if (a, b) in truth])
 
             print("Benchmark results:", results)
             
@@ -213,8 +219,11 @@ class SemanticJoin:
             if truth is not None:
                 # Convert truth to set of pairs if not already
                 truth_pairs = set(truth) if isinstance(truth, set) else set(truth)
-                # Convert results to comparable format (removing confidence scores)
-                result_pairs = set((a, b) for a, b in results)
+                # Convert results to comparable format (removing scores/explanations)
+                if join_method == 'embedding':
+                    result_pairs = set((a, b) for a, b, _ in results)
+                else:  # llm join
+                    result_pairs = set((a, b) for a, b in results)
                 # Calculate accuracy as intersection of correct pairs
                 correct_matches = result_pairs & truth_pairs
                 metrics['accuracy'] = len(correct_matches) / len(truth_pairs)

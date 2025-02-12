@@ -48,6 +48,7 @@ def run_benchmark():
         desc_col='description',
         label_col='skill'
     )
+    embedding_cost = embedding_metrics['cost']
     print("Embedding Join Metrics:", embedding_metrics)
 
     # Benchmark LLM join 
@@ -60,7 +61,21 @@ def run_benchmark():
         col_a='description',
         col_b='skill'
     )
+    llm_cost = llm_metrics['cost']
     print("LLM Join Metrics:", llm_metrics)
+
+    print("\nCost comparison:")
+    print(f"Embedding join cost: ${embedding_cost:.6f}")
+    print(f"LLM join cost: ${llm_cost:.6f}")
+    print(f"Cheaper method: {'Embedding' if embedding_cost < llm_cost else 'LLM'} join")
+
+    print("\nAccuracy comparison:")
+    print(f"Embedding join accuracy: {embedding_metrics['accuracy']:.2%}")
+    print(f"LLM join accuracy: {llm_metrics['accuracy']:.2%}")
+    if embedding_metrics['accuracy'] == llm_metrics['accuracy']:
+        print("Both methods have equal accuracy")
+    else:
+        print(f"More accurate method: {'Embedding' if embedding_metrics['accuracy'] > llm_metrics['accuracy'] else 'LLM'} join")
 
 if __name__ == "__main__":
     run_benchmark()
