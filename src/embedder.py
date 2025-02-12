@@ -1,7 +1,6 @@
 import numpy as np
-# from litellm import OpenAIClient  # or your specific litellm import
+from typing import Tuple
 from litellm import embedding
-
 from src.config import AZURE_API_KEY, AZURE_API_BASE, EMBEDDING_DEPLOYMENT, AZURE_API_VERSION 
 
 class Embedder:
@@ -11,50 +10,58 @@ class Embedder:
         self._embedding_cost = 0.0
         self._total_tokens = 0
 
-    def embed_documents(self, df, column_name: str, batch_size: int = 100) -> np.ndarray:
+    def embed_documents(self, df, column_name: str, batch_size: int = 100) -> Tuple[np.ndarray, float]:
         """
-        Generates embeddings for texts in a specified column of a dataframe.
-        Args:
-            df: pandas DataFrame containing the texts
-            column_name: name of the column containing texts to embed
-            batch_size: number of texts to process in each batch
-        Returns:
-            numpy array of embeddings
+        Generates embeddings for texts in a specified column of a DataFrame.
+        Processes the data in batches and returns embeddings and total cost.
         """
         embeddings = []
+        total_cost = 0.0
         for i in range(0, len(df), batch_size):
             batch = df[column_name].iloc[i:i + batch_size].tolist()
-            batch_embeddings = [self.get_embedding(text) for text in batch]
+            batch_embeddings = []
+            for text in batch:
+                embedding_vector, cost = self.get_embedding(text)
+                batch_embeddings.append(embedding_vector)
+                total_cost += cost
             embeddings.extend(batch_embeddings)
-        return np.array(embeddings)
+        return np.array(embeddings), total_cost
         
-    def get_embedding(self, text: str) -> np.ndarray:
+    def get_embedding(self, text: str) -> Tuple[np.ndarray, float]:
         """
         Retrieves the embedding for a given text using the Azure model.
+        Tracks token usage and cost per call.
         """
-        embedded_text = None
         if self.client:
+            # Implement the client-based call if needed.
             pass
         else:
             response = embedding(
-                    model=self.model_name, 
-                    input=[text], 
-                    api_key=AZURE_API_KEY, 
-                    api_base=AZURE_API_BASE, 
-                    api_version=AZURE_API_VERSION
-                )
-                
-            # Track tokens and cost
+                model=self.model_name, 
+                input=[text], 
+                api_key=AZURE_API_KEY, 
+                api_base=AZURE_API_BASE, 
+                api_version=AZURE_API_VERSION
+            )
+            
+            # Track tokens and cost based on the response metadata.
             token_count = response.usage.total_tokens
             self._total_tokens += token_count
-            # Azure pricing for embeddings (adjust as needed)
-            self._embedding_cost += (token_count / 1000) * 0.0001  # FIXME: get cost from the litellm request
+            # Adjust the rate to match your Azure pricing.
+            embedding_cost = 0.00002 * (token_count / 1000) # $0.00002 per 1000 tokens
+            self._embedding_cost += embedding_cost
             embedded_text = response.data[0]['embedding']
 
-        return embedded_text
+        return embedded_text, embedding_cost
 
     def get_total_cost(self) -> float:
+        """
+        Returns the cumulative cost for embedding API calls.
+        """
         return self._embedding_cost
 
     def get_total_tokens(self) -> int:
-        return self._total_tokens            
+        """
+        Returns the cumulative token count for embedding API calls.
+        """
+        return self._total_tokens

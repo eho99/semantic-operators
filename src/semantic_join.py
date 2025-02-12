@@ -1,3 +1,4 @@
+from gc import enable
 import litellm
 import numpy as np
 import pandas as pd
@@ -6,6 +7,8 @@ import time
 import os
 import lotus
 from lotus.models import LM
+from lotus.sem_ops.sem_join import sem_join
+# from lotus.cache import CacheFactory, CacheConfig, CacheType
 from dotenv import load_dotenv
 
 from src.utils import calculate_cosine_similarity
@@ -14,9 +17,13 @@ from src.embedder import Embedder
 load_dotenv()
 
 class SemanticJoin:
-    def __init__(self, data_loader, embedder_client=None):
+    def __init__(self, data_loader, embedder_client=None, model_name=None):
         self.data_loader = data_loader
         self.embedder = Embedder(embedder_client)
+        
+        model = model_name or os.getenv("LLM_DEPLOYMENT", "gpt-4o-mini")
+        self.lm = LM(model=model)
+        lotus.settings.configure(lm=self.lm)
 
     def compute_similarity_matrix(self, descriptions: np.ndarray, labels: np.ndarray) -> np.ndarray:
         """
@@ -33,7 +40,7 @@ class SemanticJoin:
         similarity_matrix = np.dot(descriptions_norm, labels_norm.T)
         return similarity_matrix
 
-    def perform_embedding_join(self, df_desc, df_labels, desc_col: str, label_col: str) -> List[Tuple[str, str, float]]:
+    def perform_embedding_join(self, df_desc, df_labels, desc_col: str, label_col: str) -> Tuple[List[Tuple[str, str, float]], float]:
         """
         Perform embedding-based join between descriptions and labels using dataframes.
         Args:
@@ -46,11 +53,11 @@ class SemanticJoin:
         """
         print("embedding documents")
         # Get embeddings for descriptions and labels using embedder
-        desc_embeddings = self.embedder.embed_documents(df_desc, desc_col)
-        label_embeddings = self.embedder.embed_documents(df_labels, label_col)
+        desc_embeddings, desc_cost = self.embedder.embed_documents(df_desc, desc_col)
+        label_embeddings, label_cost = self.embedder.embed_documents(df_labels, label_col)
 
-        # print(desc_embeddings)
-        # print(label_embeddings)
+        print(desc_embeddings)
+        print(label_embeddings)
         
         # Compute similarity matrix
         print("computing similarity matrix")
@@ -69,10 +76,9 @@ class SemanticJoin:
         for i, (desc, best_idx, similarity) in enumerate(zip(descriptions, best_matches, best_similarities)):
             join_results.append((desc, labels[best_idx], float(similarity)))
         
-        print(join_results)
-        return join_results
+        return join_results, desc_cost + label_cost
 
-    def perform_llm_join(self, data_a: pd.DataFrame, data_b: pd.DataFrame, col_a: str, col_b: str, prompt_template: Optional[str] = None) -> List[Tuple[str, str, float]]:
+    def perform_llm_join(self, data_a: pd.DataFrame, data_b: pd.DataFrame, col_a: str, col_b: str, prompt_template: Optional[str] = None) -> Tuple[List[Tuple[str, str, float]], float]:
         """
         Perform LLM-powered join using Lotus framework.
         
@@ -88,11 +94,14 @@ class SemanticJoin:
             List of tuples (value_a, value_b, confidence_score)
         """
         try:
-            # Configure Lotus LM if not already set
-            if not hasattr(self, 'lm'):
-                self.lm = LM(model=os.getenv("LLM_DEPLOYMENT", "gpt-4o-mini"))
-                lotus.settings.configure(lm=self.lm)
-            
+            # if not hasattr(self, 'cache'):
+            #     # Configure Lotus cache if not already set
+            #     cache_config = CacheConfig(CacheType.SQLITE, max_size=1000)
+            #     self.cache = CacheFactory.create_cache(cache_config)
+            print("performing llm join")
+            # Get initial cost before join
+            initial_cost = self.lm.stats.total_usage.total_cost
+
             # Rename columns to match input DataFrames
             df_a = data_a.rename(columns={col_a: "value_a"})
             df_b = data_b.rename(columns={col_b: "value_b"})
@@ -102,19 +111,49 @@ class SemanticJoin:
                 prompt_template = "Are {value_a} and {value_b} semantically related?"
             
             # Perform semantic join using Lotus
-            results = df_a.sem_join(
-                df_b,
-                prompt_template,
+            # res = df_a.sem_join(
+            #     df_b,                
+            #     # col1_label='value_a', 
+            #     # col2_label='value_b', 
+            #     prompt_template, 
+            # )
+            res = sem_join(
+                l1=df_a['value_a'],
+                l2=df_b['value_b'],
+                ids1=list(range(len(df_a))),
+                ids2=list(range(len(df_b))),
+                col1_label='value_a',
+                col2_label='value_b',
+                model=self.lm,
+                user_instruction=prompt_template,
+                default=True,
             )
+            print(res)
+            
+            # Extract parameters from sem_join results
+            join_results = res.join_results
+            
+            # Create a DataFrame from join results
+            join_pairs = [(df_a['value_a'].iloc[i], df_b['value_b'].iloc[j], explanation) 
+                         for i, j, explanation in res.join_results]
+            res = pd.DataFrame(join_pairs, columns=['value_a', 'value_b', 'explanation'])
+
+            # Calculate cost of this specific join operation
+            join_cost = self.lm.stats.total_usage.total_cost - initial_cost
+
+            # Get stats directly from LM stats tracker
+            stats = {
+                'total_comparisons': len(res),
+                'total_cost': join_cost  # Use the cost for this specific join
+            }
 
             # Store results for later processing
-            print(results)
-            # print(stats)
+            print(stats)
             self.lm.print_total_usage()
             
             # Convert results to required format
             join_results = []
-            for _, row in results.iterrows():
+            for _, row in res.iterrows():
                 join_results.append((
                     row['value_a'],
                     row['value_b'],
@@ -122,7 +161,7 @@ class SemanticJoin:
                 ))
             
             print(join_results)
-            return join_results
+            return join_results, join_cost
             
         except Exception as e:
             raise Exception(f"LLM join failed: {str(e)}")
@@ -141,7 +180,7 @@ class SemanticJoin:
         
         metrics = {
             'execution_time': 0,
-            # 'cost': 0,
+            'cost': 0,
             'accuracy': 0,
             'total_pairs': 0,
             'matched_pairs': 0
@@ -152,16 +191,14 @@ class SemanticJoin:
         try:
             if join_method == 'embedding':
                 # Track embedding costs through embedder
-                # initial_cost = self.embedder.get_total_cost()
-                results = self.perform_embedding_join(data_a, data_b, **kwargs)
-                # metrics['cost'] = self.embedder.get_total_cost() - initial_cost
+                results, cost = self.perform_embedding_join(data_a, data_b, **kwargs)
+                metrics["cost"] = cost
                 
             elif join_method == 'llm':
                 # Track LLM costs
                 # initial_cost = litellm.total_cost
-                results = self.perform_llm_join(data_a, data_b, **kwargs)
-                # metrics['cost'] = litellm.total_cost - initial_cost
-                # metrics['cost'] = 0  # FIXME: LLM cost tracking not implemented yet
+                results, cost = self.perform_llm_join(data_a, data_b, **kwargs)
+                metrics['cost'] = cost
                 
             else:
                 raise ValueError(f"Unknown join method: {join_method}")
