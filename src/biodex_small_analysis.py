@@ -21,7 +21,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
-            logging.StreamHandler()  # This will also print to console
+            logging.StreamHandler()  # Also print to console
         ]
     )
     return logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def run_biodex_analysis():
 
     # Load and preprocess the data
     sample_data, truth_data, labels_data = data_loader.load_data()
-    
+
     # Convert to DataFrames
     logger.info("Processing sample descriptions...")
     sample_df = pd.DataFrame(sample_data)
@@ -48,7 +48,8 @@ def run_biodex_analysis():
     logger.info("Processing labels...")
     labels_df = pd.DataFrame(labels_data)
     
-    # Extract ground truth pairs from truth data
+    # Extract ground truth pairs from truth data and convert to DataFrame.
+    # Ground truth should map sample_id to the expected reaction label.
     logger.info("Processing ground truth data...")
     ground_truth = []
     for item in truth_data:
@@ -58,19 +59,23 @@ def run_biodex_analysis():
                 ground_truth.append((sample_id, reaction))
     
     logger.info(f"Found {len(ground_truth)} ground truth pairs")
+    # Convert ground truth to a DataFrame with columns matching the join results.
+    # For both embedding and LLM join the common columns will be "sample_id" and "matched_label".
+    ground_truth_df = pd.DataFrame(ground_truth, columns=["sample_id", "matched_label"])
 
     # Initialize semantic join
     logger.info("Initializing SemanticJoin...")
     join_op = SemanticJoin(data_loader)
     
     logger.debug(f"Sample DataFrame:\n{sample_df}")
+    
     # Benchmark embedding join and pass the sample id column for tracking
     logger.info("Benchmarking embedding join...")
     embedding_metrics = join_op.benchmark(
         join_method='embedding',
         data_a=sample_df,
         data_b=labels_df,
-        truth=ground_truth,
+        truth=ground_truth_df,
         id_col='id',
         desc_col='fulltext_processed',
         label_col='reaction'
@@ -84,7 +89,7 @@ def run_biodex_analysis():
         join_method='llm',
         data_a=sample_df,
         data_b=labels_df,
-        truth=ground_truth,
+        truth=ground_truth_df,
         id_col='id',
         col_a='fulltext_processed',
         col_b='reaction'

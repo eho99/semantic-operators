@@ -6,6 +6,7 @@ from typing import List, Tuple, Optional
 import lotus
 import litellm
 from lotus.models import LM
+# from lotus.cache import CacheFactory, CacheConfig, CacheType
 from lotus.sem_ops.sem_join import sem_join
 from dotenv import load_dotenv
 
@@ -20,8 +21,11 @@ class SemanticJoin:
         self.embedder = Embedder(embedder_client)
         
         model = model_name or os.getenv("LLM_DEPLOYMENT", "gpt-4o-mini")
-        self.lm = LM(model=model)
-        lotus.settings.configure(lm=self.lm)
+        # cache_config = CacheConfig(cache_type=CacheType.SQLITE, max_size=1000)
+        # cache = CacheFactory.create_cache(cache_config)
+
+        self.lm = LM(model=model) # , cache=cache)
+        lotus.settings.configure(lm=self.lm) # , enable_cache=True)
 
     def compute_similarity_matrix(self, descriptions: np.ndarray, labels: np.ndarray) -> np.ndarray:
         descriptions_norm = descriptions / np.linalg.norm(descriptions, axis=1)[:, np.newaxis]
